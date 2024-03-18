@@ -1,77 +1,108 @@
 const express = require('express');
 const session = require('express-session');
-const sqlite3 = require('sqlite3').verbose();
 const bodyParser = require('body-parser');
-const generateSecretKey = require('./generateSecretKey');
-
+const { Client } = require('pg');
 
 const app = express();
 
 // Middleware
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
-app.use(session({ secret: generateSecretKey(), resave: false, saveUninitialized: true }));
+app.use(session({
+  secret: 'a61872c43c5402b2db073f67f9290330e47ab64b5a6061255d690a5691bd49c7',
+  resave: false,
+  saveUninitialized: true
+}));
 
-// Initialize SQLite database
-const db = new sqlite3.Database('./users.db');
-db.run("CREATE TABLE IF NOT EXISTS users (email TEXT PRIMARY KEY, password TEXT, session_id TEXT, text_data TEXT)");
+// PostgreSQL database connection
+const client = new Client({
+  user: 'postgres',
+  host: 'localhost',
+  database: 'users',
+  password: 'root',
+  port: 5432,
+});
+client.connect()
+  .then(() => console.log('Connected to PostgreSQL database'))
+  .catch(err => console.error('Error connecting to PostgreSQL database:', err.stack));
 
 // Login route - handle POST requests
-app.post('/login', (req, res) => {
+app.post('/login', async (req, res) => {
   const { email, password } = req.body;
 
-  db.get("SELECT * FROM users WHERE email = ?", email, (err, row) => {
-    if (err) {
-      console.error(err.message);
-      return res.status(500).json({ error: 'Internal Server Error' });
-    }
-
-    if (!row || row.password !== password) {
+  try {
+    const result = await client.query('SELECT * FROM users WHERE email = $1', [email]);
+    const user = result.rows[0];
+    
+    if (!user || user.password !== password) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
-    req.session.userId = email;
-    db.run("UPDATE users SET session_id = ? WHERE email = ?", [req.session.id, email]);
-    
-    res.json({ message: 'Login successful' });
-  });
+    req.session.userId = user.email;
+    return res.redirect('/edit_text.html'); // Redirect to edit_text.html after successful login
+  } catch (error) {
+    console.error('Error:', error.message);
+    return res.status(500).json({ error: 'Internal Server Error' });
+  }
 });
 
-// Route to access user-specific page
-app.get('/user', (req, res) => {
-  const userEmail = req.session.userId;
-  if (!userEmail) return res.status(401).json({ error: 'Unauthorized' });
+// Sign up route - handle POST requests
+app.post('/signup', async (req, res) => {
+  const { email, password } = req.body;
 
-  db.get("SELECT text_data FROM users WHERE email = ?", userEmail, (err, row) => {
-    if (err) {
-      console.error(err.message);
-      return res.status(500).json({ error: 'Internal Server Error' });
+  try {
+    const result = await client.query('INSERT INTO users (email, password) VALUES ($1, $2) RETURNING *', [email, password]);
+    const newUser = result.rows[0];
+
+    if (!newUser) {
+      return res.status(500).json({ error: 'Failed to create user' });
     }
 
-    if (!row || !row.text_data) return res.status(404).json({ error: 'User-specific data not found' });
+    req.session.userId = newUser.email;
+    return res.json({ message: 'User created successfully' });
+  } catch (error) {
+    console.error('Error:', error.message);
+    return res.status(500).json({ error: 'Internal Server Error' });
+  }
+});
 
-    res.json({ userText: row.text_data });
-  });
+// Route to fetch user-specific text data
+app.get('/user/text', async (req, res) => {
+  const userId = req.session.userId;
+
+  if (!userId) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  try {
+    const result = await client.query('SELECT text_data FROM users WHERE email = $1', [userId]);
+    const userText = result.rows[0].text_data || '';
+    return res.json({ userText });
+  } catch (error) {
+    console.error('Error:', error.message);
+    return res.status(500).json({ error: 'Internal Server Error' });
+  }
 });
 
 // Route to update user-specific text data
-app.post('/update-text', (req, res) => {
-  const userEmail = req.session.userId;
-  const newText = req.body.text;
+app.post('/user/text', async (req, res) => {
+  const userId = req.session.userId;
+  const { text } = req.body;
 
-  if (!userEmail) return res.status(401).json({ error: 'Unauthorized' });
+  if (!userId) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
 
-  db.run("UPDATE users SET text_data = ? WHERE email = ?", [newText, userEmail], (err) => {
-    if (err) {
-      console.error(err.message);
-      return res.status(500).json({ error: 'Internal Server Error' });
-    }
-
-    res.json({ message: 'Text updated successfully' });
-  });
+  try {
+    await client.query('UPDATE users SET text_data = $1 WHERE email = $2', [text, userId]);
+    return res.json({ message: 'Text data updated successfully' });
+  } catch (error) {
+    console.error('Error:', error.message);
+    return res.status(500).json({ error: 'Internal Server Error' });
+  }
 });
 
-// Serve static files
+// Serve static files from the 'public' directory
 app.use(express.static('public'));
 
 // Redirect home page to login
