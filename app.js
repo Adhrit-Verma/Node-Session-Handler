@@ -27,6 +27,9 @@ db.serialize(() => {
 app.post('/login', (req, res) => {
   const { email, password } = req.body;
 
+  // Log user entries
+  console.log('User login attempt:', email);
+
   // Check if user exists in the database
   db.get("SELECT * FROM users WHERE email = ?", email, (err, row) => {
     if (err) {
@@ -70,9 +73,39 @@ app.get('/user', (req, res) => {
   });
 });
 
+// Route to update user-specific text data
+app.post('/update-text', (req, res) => {
+  const userEmail = req.session.userId;
+  const newText = req.body.text;
+
+  if (!userEmail) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  // Update user-specific text data in the database
+  db.run("UPDATE users SET text_data = ? WHERE email = ?", [newText, userEmail], (err) => {
+    if (err) {
+      console.error(err.message);
+      return res.status(500).json({ error: 'Internal Server Error' });
+    }
+
+    res.json({ message: 'Text updated successfully' });
+  });
+});
+
 // Serve the HTML file
 app.get('/login', (req, res) => {
   res.sendFile(__dirname + '/login.html');
+});
+
+// Serve the text editing page
+app.get('/edit-text', (req, res) => {
+  res.sendFile(__dirname + '/edit_text.html');
+});
+
+// Redirect home page to login
+app.get('/', (req, res) => {
+  res.redirect('/login');
 });
 
 const PORT = process.env.PORT || 3000;
