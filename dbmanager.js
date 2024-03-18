@@ -4,7 +4,7 @@ const { Pool } = require('pg');
 const pool = new Pool({
     user: 'postgres',
     host: 'localhost',
-    database: 'users',
+    database: 'postgres', // Connect to default 'postgres' database for administrative purposes
     password: 'root',
     port: 5432,
 });
@@ -29,53 +29,40 @@ async function createUsersTable() {
     }
 }
 
-// Connect to the database and create the users table
-pool.connect((err, client, done) => {
+// Function to create the users database if it doesn't exist
+async function createDatabaseIfNotExists() {
+    const query = `
+        CREATE DATABASE IF NOT EXISTS users;
+    `;
+
+    try {
+        await pool.query(query);
+        console.log('Database created successfully or already exists');
+    } catch (error) {
+        console.error('Error creating database:', error);
+    }
+}
+
+// Connect to the database and create the users database and table if not exists
+pool.connect(async (err, client, done) => {
     if (err) {
         console.error('Error connecting to the database:', err);
         return;
     }
     console.log('Connected to the database');
+    createDatabaseIfNotExists(); // Create the users database if it doesn't exist
     createUsersTable(); // Create the users table
 
     // Release the client back to the pool
     done();
 });
 
-// Function to update user text data in real-time
-async function updateUserText(email, text) {
-    const query = `
-        UPDATE users
-        SET text_data = $1
-        WHERE email = $2
-    `;
-
-    try {
-        await pool.query(query, [text, email]);
-        console.log('User text data updated successfully');
-    } catch (error) {
-        console.error('Error updating user text data:', error);
-    }
-}
-
-// Function to retrieve user text data
-async function getUserText(email) {
-    const query = `
-        SELECT text_data
-        FROM users
-        WHERE email = $1
-    `;
-
-    try {
-        const result = await pool.query(query, [email]);
-        return result.rows[0].text_data || '';
-    } catch (error) {
-        console.error('Error retrieving user text data:', error);
-        return '';
-    }
-}
+// Handle errors
+pool.on('error', (err, client) => {
+    console.error('Unexpected error on idle client:', err);
+    process.exit(-1);
+});
 
 module.exports = {
-    updateUserText,
-    getUserText
+    createUsersTable
 };
