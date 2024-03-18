@@ -2,6 +2,7 @@ const express = require('express');
 const session = require('express-session');
 const bodyParser = require('body-parser');
 const { Client } = require('pg');
+const { v4: uuidv4 } = require('uuid'); // Import UUID generator
 const db = require('./dbmanager'); // Import the database manager module
 
 const app = express();
@@ -10,7 +11,7 @@ const app = express();
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
 app.use(session({
-  secret: 'a61872c43c5402b2db073f67f9290330e47ab64b5a6061255d690a5691bd49c7',
+  secret: 'a61872c43c5402b2db073f67f9290330e47ab64b5a606125',
   resave: false,
   saveUninitialized: true
 }));
@@ -55,7 +56,10 @@ app.post('/signup', async (req, res) => {
   const { email, password } = req.body;
 
   try {
-    const result = await client.query('INSERT INTO users (email, password) VALUES ($1, $2) RETURNING *', [email, password]);
+    // Generate a unique session key using UUID
+    const sessionId = uuidv4();
+
+    const result = await client.query('INSERT INTO users (email, password, session_id) VALUES ($1, $2, $3) RETURNING *', [email, password, sessionId]);
     const newUser = result.rows[0];
 
     if (!newUser) {
@@ -64,7 +68,7 @@ app.post('/signup', async (req, res) => {
 
     // Set session variables
     req.session.userId = newUser.email;
-    req.session.sessionId = req.sessionID; // Store the session ID
+    req.session.sessionId = sessionId; // Store the session ID
 
     return res.json({ message: 'User created successfully' });
   } catch (error) {
