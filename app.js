@@ -2,6 +2,7 @@ const express = require('express');
 const session = require('express-session');
 const bodyParser = require('body-parser');
 const { Client } = require('pg');
+const db = require('./dbmanager'); // Import the database manager module
 
 const app = express();
 
@@ -38,7 +39,10 @@ app.post('/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
+    // Set session variables
     req.session.userId = user.email;
+    req.session.sessionId = req.sessionID; // Store the session ID
+
     return res.redirect('/edit_text.html'); // Redirect to edit_text.html after successful login
   } catch (error) {
     console.error('Error:', error.message);
@@ -58,7 +62,10 @@ app.post('/signup', async (req, res) => {
       return res.status(500).json({ error: 'Failed to create user' });
     }
 
+    // Set session variables
     req.session.userId = newUser.email;
+    req.session.sessionId = req.sessionID; // Store the session ID
+
     return res.json({ message: 'User created successfully' });
   } catch (error) {
     console.error('Error:', error.message);
@@ -75,8 +82,7 @@ app.get('/user/text', async (req, res) => {
   }
 
   try {
-    const result = await client.query('SELECT text_data FROM users WHERE email = $1', [userId]);
-    const userText = result.rows[0].text_data || '';
+    const userText = await db.getUserText(userId); // Use the database manager to fetch user text
     return res.json({ userText });
   } catch (error) {
     console.error('Error:', error.message);
@@ -94,7 +100,7 @@ app.post('/user/text', async (req, res) => {
   }
 
   try {
-    await client.query('UPDATE users SET text_data = $1 WHERE email = $2', [text, userId]);
+    await db.updateUserText(userId, text); // Use the database manager to update user text
     return res.json({ message: 'Text data updated successfully' });
   } catch (error) {
     console.error('Error:', error.message);
